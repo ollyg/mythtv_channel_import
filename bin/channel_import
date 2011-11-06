@@ -9,10 +9,16 @@ use MythConverg::Schema;
 use Getopt::Long;
 my $videosource = 'default';
 my $channelsfile = 'channels.conf';
+my $mode = undef;
 GetOptions(
     's|videosource=s' => \$videosource,
     'c|channels=s' => \$channelsfile,
-)or die "Failed to parse command line options.\n";;
+    'm|mode=s' => \$mode,
+) or die "Failed to parse command line options.\n";;
+
+die "Mode (-m) must be s (satellite) or t (terrestrial)\n"
+    unless defined $mode and length $mode and $mode =~ m/^(?:s|t)$/;
+$mode = ($mode eq 't' ? 'freeview' : 'freesat');
 
 use File::Slurp;
 my @scanned_chans = read_file $channelsfile;
@@ -20,15 +26,15 @@ my @scanned_chans = read_file $channelsfile;
 use HTTP::Lite;
 my $http = HTTP::Lite->new;
 my $req = $http->request(
-    'http://supplement.xmltv.org/tv_grab_uk_rt/lineups/freesat.map', # FIXME
+    "http://supplement.xmltv.org/tv_grab_uk_rt/lineups/$mode.map",
 ) or die "Unable to get document: $!";
 
-my $sat_chans = {};
+my $x_chans = {};
 foreach my $line (split m/\n/, $http->body) {
     my ($cs, $sid, $xid) = split m/\|/, $line;
     next unless defined $xid and length $xid
         and $xid !~ m/RADIO|DATA|ADULT/;
-    $sat_chans->{$sid} = { callsign => $cs, xmltvid => $xid };
+    $x_chans->{$sid} = { callsign => $cs, xmltvid => $xid };
 }
 
 my $s = MythConverg::Schema->connect(
@@ -65,11 +71,11 @@ foreach my $line (@scanned_chans) {
     (my $fec = $params) =~ s{.*C(\d)(\d).*}{$1/$2}; # breaks for 0
     chomp $sid;
 
-    if (!exists $sat_chans->{$sid}) {
+    if (!exists $x_chans->{$sid}) {
         print STDERR "Skipping channel '$cs' with no xmltvid\n";
         next;
     }
-    $cs = $sat_chans->{$sid}->{callsign}; # override from tv_grab_uk_rt
+    $cs = $x_chans->{$sid}->{callsign}; # override from tv_grab_uk_rt
 
     my $mplex = $multiplexes->find_or_create(
         {
@@ -109,10 +115,11 @@ foreach my $line (@scanned_chans) {
         callsign => $cs,
         mplexid => $mplex,
         serviceid => $sid,
-        xmltvid => $sat_chans->{$sid}->{xmltvid},
+        xmltvid => $x_chans->{$sid}->{xmltvid},
     });
 
-    push @grabber, "channel $sat_chans->{$sid}->{xmltvid}\n";
+    # create input file for mythfilldatabase
+    push @grabber, "channel $x_chans->{$sid}->{xmltvid}\n";
 }
 
 write_file "$videosource.xmltv", @grabber;
