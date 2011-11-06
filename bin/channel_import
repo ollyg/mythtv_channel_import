@@ -61,6 +61,70 @@ my $max_channum = $channels->get_column('channum')->max;
 my @grabber = ();
 
 foreach my $line (@scanned_chans) {
+    my $scan = ($mode eq 'freeview' ? parse_ter_line($line) : parse_sat_line($line));
+
+    if (!exists $x_chans->{$scan->{sid}}) {
+        print STDERR "Skipping channel '$scan->{cs}' with no xmltvid\n";
+        next;
+    }
+    $scan->{cs} = $x_chans->{$scan->{sid}}->{callsign}; # override from tv_grab_uk_rt
+
+    my $mplex = $multiplexes->find_or_create(
+        {
+            sourceid => $sourceid,
+            frequency => ($scan->{freq} < 100_000 ? $scan->{freq} * 1_000 : $scan->{freq} ),
+            symbolrate => ($scan->{sr} < 100_000 ? $scan->{sr} * 1_000 : $scan->{sr}),
+            polarity => $scan->{pol},
+        },{
+            key => 'zap_key',
+        },
+    );
+
+    $mplex->update({
+        transportid => $scan->{tid},
+        networkid => $scan->{nid},
+        fec => $scan->{fec},
+        mod_sys => 'DVB-S',
+    });
+
+    # does callsign exist? if so, re-use channum, else new channum
+    my $has_chan = $channels->search({callsign => $scan->{cs}})->count;
+
+    my $chan = $channels->find_or_create(
+        {
+            chanid => ++$max_chanid,
+            channum => ($has_chan
+                ? $channels->search({callsign => $scan->{cs}})->first->channum
+                : ++$max_channum),
+            sourceid => $sourceid,
+        },{
+            key => 'channum_sourceid_key',
+        },
+    );
+
+    # allow update of meta such as xmltvid
+    $chan->update({
+        callsign => $scan->{cs},
+        mplexid => $mplex,
+        serviceid => $scan->{sid},
+        xmltvid => $x_chans->{$scan->{sid}}->{xmltvid},
+    });
+
+    # create input file for mythfilldatabase
+    push @grabber, "channel $x_chans->{$scan->{sid}}->{xmltvid}\n";
+}
+
+write_file "$videosource.xmltv", @grabber;
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+sub parse_ter_line {
+    die;
+}
+
+sub parse_sat_line {
+    my $line = shift;
+
     # http://linuxtv.org/vdrwiki/index.php/Syntax_of_channels.conf
     # callsign;bouquet:frequency:params(polarity,high_prio):source:symbolrate:vpid:apid:teletextpid:conditionalflag:serviceid:networkid:transportid:radioid
     # Channel 4;BSkyB:10714:hC56:S28.2E:22000:2327:2328:2329:0:9212:2:2041:0
@@ -71,60 +135,20 @@ foreach my $line (@scanned_chans) {
     (my $fec = $params) =~ s{.*C(\d)(\d).*}{$1/$2}; # breaks for 0
     chomp $sid;
 
-    if (!exists $x_chans->{$sid}) {
-        print STDERR "Skipping channel '$cs' with no xmltvid\n";
-        next;
-    }
-    $cs = $x_chans->{$sid}->{callsign}; # override from tv_grab_uk_rt
-
-    my $mplex = $multiplexes->find_or_create(
-        {
-            sourceid => $sourceid,
-            frequency => ($freq < 100_000 ? $freq * 1_000 : $freq ),
-            symbolrate => ($sr < 100_000 ? $sr * 1_000 : $sr),
-            polarity => $pol,
-        },{
-            key => 'zap_key',
-        },
-    );
-
-    $mplex->update({
-        transportid => $tid,
-        networkid => $nid,
+    return {
+        cs => $cs,
+        freq => $freq,
+        pol => $pol,
         fec => $fec,
-        mod_sys => 'DVB-S',
-    });
-
-    # does callsign exist? if so, re-use channum, else new channum
-    my $has_chan = $channels->search({callsign => $cs})->count;
-
-    my $chan = $channels->find_or_create(
-        {
-            chanid => ++$max_chanid,
-            channum => ($has_chan
-                ? $channels->search({callsign => $cs})->first->channum
-                : ++$max_channum),
-            sourceid => $sourceid,
-        },{
-            key => 'channum_sourceid_key',
-        },
-    );
-
-    # allow update of meta such as xmltvid
-    $chan->update({
-        callsign => $cs,
-        mplexid => $mplex,
-        serviceid => $sid,
-        xmltvid => $x_chans->{$sid}->{xmltvid},
-    });
-
-    # create input file for mythfilldatabase
-    push @grabber, "channel $x_chans->{$sid}->{xmltvid}\n";
+        sr => $sr,
+        sid => $sid,
+        nid => $nid,
+        tid => $tid,
+    };
 }
 
-write_file "$videosource.xmltv", @grabber;
-
 __END__
+
 mysql> select * from channel where callsign = 'BBC 1 South';
 +--------+---------+--------+----------+-------------+-------------+------+----------+--------------+---------+-------------+----------+------------+--------+-------+----------+---------+---------------+---------------+---------+-----------+----------+-----------------+-----------------+---------------------+-------------------+------------+
 | chanid | channum | freqid | sourceid | callsign    | name        | icon | finetune | videofilters | xmltvid | recpriority | contrast | brightness | colour | hue   | tvformat | visible | outputfilters | useonairguide | mplexid | serviceid | tmoffset | atsc_major_chan | atsc_minor_chan | last_record         | default_authority | commmethod |
