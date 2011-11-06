@@ -73,7 +73,6 @@ if ($ENV{RESET_MYTH_CHAN_MPLEX}) {
     $channels->delete;
 }
 
-my $max_chanid  = $channels->get_column('chanid')->max;
 my $max_channum = $channels->get_column('channum')->max;
 my @grabber = ();
 
@@ -97,8 +96,8 @@ foreach my $line (@scanned_chans) {
     my $mplex = $multiplexes->find_or_create(
         {
             sourceid => $sourceid,
-            frequency => ($scan->{freq} < 100_000 ? $scan->{freq} * 1_000 : $scan->{freq} ),
-            symbolrate => ($scan->{sr} < 100_000 ? $scan->{sr} * 1_000 : $scan->{sr}),
+            frequency => ($scan->{freq} < 1_000_000 ? $scan->{freq} * 1_000 : $scan->{freq} ),
+            symbolrate => ($scan->{sr} < 1_000_000 ? $scan->{sr} * 1_000 : $scan->{sr}),
             polarity => $scan->{pol},
         },{
             key => 'zap_key',
@@ -116,7 +115,7 @@ foreach my $line (@scanned_chans) {
 
     my $chan = $channels->find_or_create(
         {
-            chanid => ++$max_chanid,
+            chanid => (($channels->get_column('chanid')->max || 0) + 1),
             channum => ($has_chan
                 ? $channels->search({callsign => $scan->{cs}})->first->channum
                 : ++$max_channum),
@@ -162,10 +161,6 @@ sub parse_vdr_line {
     $pol = (length $pol > 1 ? undef : lc $pol);
     (my $fec = $params) =~ s{.*C(\d)(\d).*}{$1/$2}; # breaks for 0, so...
     $fec ||= 'auto';
-
-# | mplexid | sourceid | transportid | networkid | frequency | inversion | symbolrate | fec  | polarity | modulation | bandwidth | lp_code_rate | transmission_mode | guard_interval | visible | constellation | hierarchy | hp_code_rate | sistandard | serviceversion | updatetimestamp     |
-# |       1 |        1 |         500 |      8232 | 858000000 | a         |       NULL | NULL | NULL     | NULL       | 8         | 3/4          | 8                 | 1/4            |       0 | qam_16        | n         | 3/4          | dvb        |              2 | 2008-02-02 20:16:03 | 
-
 
     # terrestrial params
     (my $inv = $params)  =~ s{.*I(\d+).*}{$1};
@@ -227,4 +222,8 @@ mysql> select * from dtv_multiplex where mplexid = 126;
 |     126 |        2 |        2048 |         2 |  10817500 | a         |   22000000 | 5/6  | v        | qpsk       | a         | auto         | a                 | auto           |       0 | qpsk          | a         | auto         | DVB-S   | 0.35    | dvb        |             33 | 2011-11-06 13:51:16 |                   |
 +---------+----------+-------------+-----------+-----------+-----------+------------+------+----------+------------+-----------+--------------+-------------------+----------------+---------+---------------+-----------+--------------+---------+---------+------------+----------------+---------------------+-------------------+
 1 row in set (0.00 sec)
+
+# | mplexid | sourceid | transportid | networkid | frequency | inversion | symbolrate | fec  | polarity | modulation | bandwidth | lp_code_rate | transmission_mode | guard_interval | visible | constellation | hierarchy | hp_code_rate | sistandard | serviceversion | updatetimestamp     |
+# |       1 |        1 |         500 |      8232 | 858000000 | a         |       NULL | NULL | NULL     | NULL       | 8         | 3/4          | 8                 | 1/4            |       0 | qam_16        | n         | 3/4          | dvb        |              2 | 2008-02-02 20:16:03 | 
+
 
