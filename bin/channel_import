@@ -62,7 +62,7 @@ foreach my $line (@scanned_chans) {
         = ($line =~ m/([^:]+):?/g);
     $cs =~ s/;.+//;
     (my $pol = $params) =~ s{.*([hv]).*}{$1}i;
-    (my $fec = $params) =~ s{C(\d)(\d)}{$1/$2}; # breaks for 0
+    (my $fec = $params) =~ s{.*C(\d)(\d).*}{$1/$2}; # breaks for 0
     chomp $sid;
 
     if (!exists $sat_chans->{$sid}) {
