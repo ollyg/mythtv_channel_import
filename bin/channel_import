@@ -55,10 +55,14 @@ my $max_channum = $channels->get_column('channum')->max;
 my @grabber = ();
 
 foreach my $line (@scanned_chans) {
-    # callsign:frequency:polarity:?:symbolrate:vpid:apid:serviceid
-    # Channel 4:10714:h:0:22000:2327:2328:9212
-    my ($cs,$freq,$pol,undef,$sr,undef,undef,$sid)
+    # http://linuxtv.org/vdrwiki/index.php/Syntax_of_channels.conf
+    # callsign;bouquet:frequency:params(polarity,high_prio):source:symbolrate:vpid:apid:teletextpid:conditionalflag:serviceid:networkid:transportid:radioid
+    # Channel 4;BSkyB:10714:hC56:S28.2E:22000:2327:2328:2329:0:9212:2:2041:0
+    my ($cs,$freq,$params,undef,$sr,undef,undef,undef,undef,$sid,$nid,$tid,undef)
         = ($line =~ m/([^:]+):?/g);
+    $cs =~ s/;.+//;
+    (my $pol = $params) =~ s{.*([hv]).*}{$1}i;
+    (my $fec = $params) =~ s{C(\d)(\d)}{$1/$2}; # breaks for 0
     chomp $sid;
 
     if (!exists $sat_chans->{$sid}) {
@@ -77,6 +81,13 @@ foreach my $line (@scanned_chans) {
             key => 'zap_key',
         },
     );
+
+    $mplex->update({
+        transportid => $tid,
+        networkid => $nid,
+        fec => $fec,
+        mod_sys => 'DVB-S',
+    });
 
     # does callsign exist? if so, re-use channum, else new channum
     my $has_chan = $channels->search({callsign => $cs})->count;
@@ -99,10 +110,27 @@ foreach my $line (@scanned_chans) {
         mplexid => $mplex,
         serviceid => $sid,
         xmltvid => $sat_chans->{$sid}->{xmltvid},
-        mod_sys => 'DVB-S',
     });
 
     push @grabber, "channel $sat_chans->{$sid}->{xmltvid}\n";
 }
 
 write_file "$videosource.xmltv", @grabber;
+
+__END__
+mysql> select * from channel where callsign = 'BBC 1 South';
++--------+---------+--------+----------+-------------+-------------+------+----------+--------------+---------+-------------+----------+------------+--------+-------+----------+---------+---------------+---------------+---------+-----------+----------+-----------------+-----------------+---------------------+-------------------+------------+
+| chanid | channum | freqid | sourceid | callsign    | name        | icon | finetune | videofilters | xmltvid | recpriority | contrast | brightness | colour | hue   | tvformat | visible | outputfilters | useonairguide | mplexid | serviceid | tmoffset | atsc_major_chan | atsc_minor_chan | last_record         | default_authority | commmethod |
++--------+---------+--------+----------+-------------+-------------+------+----------+--------------+---------+-------------+----------+------------+--------+-------+----------+---------+---------------+---------------+---------+-----------+----------+-----------------+-----------------+---------------------+-------------------+------------+
+|      1 | 10353   | NULL   |        2 | BBC 1 South | BBC 1 South |      |     NULL |              |         |           0 |    32768 |      32768 |  32768 | 32768 |          |       1 |               |             1 |     126 |     10353 |        0 |               0 |               0 | 2011-11-06 15:10:35 | fp.bbc.co.uk      |         -1 |
++--------+---------+--------+----------+-------------+-------------+------+----------+--------------+---------+-------------+----------+------------+--------+-------+----------+---------+---------------+---------------+---------+-----------+----------+-----------------+-----------------+---------------------+-------------------+------------+
+1 row in set (0.00 sec)
+
+mysql> select * from dtv_multiplex where mplexid = 126;
++---------+----------+-------------+-----------+-----------+-----------+------------+------+----------+------------+-----------+--------------+-------------------+----------------+---------+---------------+-----------+--------------+---------+---------+------------+----------------+---------------------+-------------------+
+| mplexid | sourceid | transportid | networkid | frequency | inversion | symbolrate | fec  | polarity | modulation | bandwidth | lp_code_rate | transmission_mode | guard_interval | visible | constellation | hierarchy | hp_code_rate | mod_sys | rolloff | sistandard | serviceversion | updatetimestamp     | default_authority |
++---------+----------+-------------+-----------+-----------+-----------+------------+------+----------+------------+-----------+--------------+-------------------+----------------+---------+---------------+-----------+--------------+---------+---------+------------+----------------+---------------------+-------------------+
+|     126 |        2 |        2048 |         2 |  10817500 | a         |   22000000 | 5/6  | v        | qpsk       | a         | auto         | a                 | auto           |       0 | qpsk          | a         | auto         | DVB-S   | 0.35    | dvb        |             33 | 2011-11-06 13:51:16 |                   |
++---------+----------+-------------+-----------+-----------+-----------+------------+------+----------+------------+-----------+--------------+-------------------+----------------+---------+---------------+-----------+--------------+---------+---------+------------+----------------+---------------------+-------------------+
+1 row in set (0.00 sec)
+
