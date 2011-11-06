@@ -112,7 +112,7 @@ __PACKAGE__->set_primary_key("mplexid");
 # DO NOT MODIFY THIS OR ANYTHING ABOVE! md5sum:8nQZPI1DQkchM1PqHmtseg
 
 __PACKAGE__->add_unique_constraint(
-    zap_key => [ qw/ sourceid frequency symbolrate polarity / ],
+    zap_key => [ qw/ sourceid frequency symbolrate / ],
 );
 
 __PACKAGE__->has_many(

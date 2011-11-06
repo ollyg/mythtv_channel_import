@@ -98,7 +98,6 @@ foreach my $line (@scanned_chans) {
             sourceid => $sourceid,
             frequency => ($scan->{freq} < 1_000_000 ? $scan->{freq} * 1_000 : $scan->{freq} ),
             symbolrate => ($scan->{sr} < 1_000_000 ? $scan->{sr} * 1_000 : $scan->{sr}),
-            polarity => $scan->{pol},
         },{
             key => 'zap_key',
         },
@@ -110,14 +109,14 @@ foreach my $line (@scanned_chans) {
         %{ $scan->{'__parameters__'} },
     });
 
-    # does callsign exist? if so, re-use channum, else new channum
-    my $has_chan = $channels->search({callsign => $scan->{cs}})->count;
+    # does xmltvid exist? if so, re-use channum, else new channum
+    my $has_chan = $channels->search({xmltvid => $x_chan->{xmltvid}})->count;
 
     my $chan = $channels->find_or_create(
         {
             chanid => (($channels->get_column('chanid')->max || 0) + 1),
             channum => ($has_chan
-                ? $channels->search({callsign => $scan->{cs}})->first->channum
+                ? $channels->search({xmltvid => $x_chan->{xmltvid}})->first->channum
                 : ++$max_channum),
             sourceid => $sourceid,
         },{
@@ -180,10 +179,10 @@ sub parse_vdr_line {
     return {
         cs => $cs,
         freq => $freq,
-        pol => $pol,
 
         '__parameters__' => ($src eq 'S' ? {
             fec => $fec,
+            polarity => $pol,
             mod_sys => 'DVB-S',
         } : {
             inversion => $inv,
