@@ -3,40 +3,57 @@
 use strict;
 use warnings FATAL => 'all';
 
-use lib './lib';
-use MythConverg::Schema;
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 use Getopt::Long;
 my $videosource = 'default';
 my $channelsfile = 'channels.conf';
-my $mode = undef;
 GetOptions(
     's|videosource=s' => \$videosource,
     'c|channels=s' => \$channelsfile,
-    'm|mode=s' => \$mode,
 ) or die "Failed to parse command line options.\n";;
 
-die "Mode (-m) must be s (satellite) or t (terrestrial)\n"
-    unless defined $mode and length $mode and $mode =~ m/^(?:s|t)$/;
-$mode = ($mode eq 't' ? 'freeview' : 'freesat');
-
-use File::Slurp;
-my @scanned_chans = read_file $channelsfile;
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 use HTTP::Lite;
 my $http = HTTP::Lite->new;
-my $req = $http->request(
-    "http://supplement.xmltv.org/tv_grab_uk_rt/lineups/$mode.map",
+my $x_chans = {};
+
+$http->request(
+    "http://supplement.xmltv.org/tv_grab_uk_rt/lineups/freeview.map",
 ) or die "Unable to get document: $!";
 
-my $x_chans = {};
 foreach my $line (split m/\n/, $http->body) {
     my ($cs, $sid, $xid) = split m/\|/, $line;
     next unless defined $xid and length $xid
         and $xid !~ m/RADIO|DATA|ADULT/;
-    $x_chans->{$sid} = { callsign => $cs, xmltvid => $xid };
+    $x_chans->{T}->{$sid} = { callsign => $cs, xmltvid => $xid };
+    $x_chans->{T}->{by_cs}->{$cs} = $sid;
 }
 
+$http->request(
+    "http://supplement.xmltv.org/tv_grab_uk_rt/lineups/freesat.map",
+) or die "Unable to get document: $!";
+
+foreach my $line (split m/\n/, $http->body) {
+    my ($cs, $sid, $xid) = split m/\|/, $line;
+    next unless defined $xid and length $xid
+        and $xid !~ m/RADIO|DATA|ADULT/;
+    $x_chans->{S}->{$sid} = { callsign => $cs, xmltvid => $xid };
+    $x_chans->{S}->{by_cs}->{$cs} = $sid;
+}
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+use File::Slurp;
+my @scanned_chans = read_file $channelsfile;
+die "Channels file '$channelsfile' is empty!\n"
+    if 0 == scalar @scanned_chans;
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+use lib './lib';
+use MythConverg::Schema;
 my $s = MythConverg::Schema->connect(
     'dbi:mysql:database=mythconverg',
     'mythtv', 'V0yNzk77',
@@ -51,23 +68,31 @@ my $source = $sources->find({name => $videosource})
     or die "Unknown video source '$videosource' (use -s <name>).\n";
 my $sourceid = $source->sourceid;
 
-# XXX
-$multiplexes->delete;
-$channels->delete;
-# XXX
+if ($ENV{RESET_MYTH_CHAN_MPLEX}) {
+    $multiplexes->delete;
+    $channels->delete;
+}
 
 my $max_chanid  = $channels->get_column('chanid')->max;
 my $max_channum = $channels->get_column('channum')->max;
 my @grabber = ();
 
-foreach my $line (@scanned_chans) {
-    my $scan = ($mode eq 'freeview' ? parse_ter_line($line) : parse_sat_line($line));
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    if (!exists $x_chans->{$scan->{sid}}) {
-        print STDERR "Skipping channel '$scan->{cs}' with no xmltvid\n";
+foreach my $line (@scanned_chans) {
+    my $scan = parse_vdr_line($line);
+
+    if (exists $x_chans->{$scan->{src}}->{by_cs}->{$scan->{cs}}) {
+        $x_chans->{$scan->{src}}->{$scan->{sid}}
+            = $x_chans->{$scan->{src}}->{ $x_chans->{$scan->{src}}->{by_cs}->{$scan->{cs}} };
+    }
+
+    if (!exists $x_chans->{$scan->{src}}->{$scan->{sid}}) {
+        print STDERR "Skipping ($scan->{src}) channel '$scan->{cs}' with no xmltvid\n";
         next;
     }
-    $scan->{cs} = $x_chans->{$scan->{sid}}->{callsign}; # override from tv_grab_uk_rt
+    my $x_chan = $x_chans->{$scan->{src}}->{$scan->{sid}};
+    $scan->{cs} = $x_chan->{callsign}; # override to tv_grab_uk_rt value
 
     my $mplex = $multiplexes->find_or_create(
         {
@@ -83,8 +108,7 @@ foreach my $line (@scanned_chans) {
     $mplex->update({
         transportid => $scan->{tid},
         networkid => $scan->{nid},
-        fec => $scan->{fec},
-        mod_sys => 'DVB-S',
+        %{ $scan->{'__parameters__'} },
     });
 
     # does callsign exist? if so, re-use channum, else new channum
@@ -107,39 +131,78 @@ foreach my $line (@scanned_chans) {
         callsign => $scan->{cs},
         mplexid => $mplex,
         serviceid => $scan->{sid},
-        xmltvid => $x_chans->{$scan->{sid}}->{xmltvid},
+        xmltvid => $x_chan->{xmltvid},
     });
 
     # create input file for mythfilldatabase
-    push @grabber, "channel $x_chans->{$scan->{sid}}->{xmltvid}\n";
+    push @grabber, "channel $x_chan->{xmltvid}\n";
 }
 
 write_file "$videosource.xmltv", @grabber;
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-sub parse_ter_line {
-    die;
-}
-
-sub parse_sat_line {
+sub parse_vdr_line {
     my $line = shift;
 
     # http://linuxtv.org/vdrwiki/index.php/Syntax_of_channels.conf
-    # callsign;bouquet:frequency:params(polarity,high_prio):source:symbolrate:vpid:apid:teletextpid:conditionalflag:serviceid:networkid:transportid:radioid
+    # callsign;bouquet:frequency:params():source:symbolrate:vpid:apid:textpid:conditional:serviceid:networkid:transportid:radioid
     # Channel 4;BSkyB:10714:hC56:S28.2E:22000:2327:2328:2329:0:9212:2:2041:0
-    my ($cs,$freq,$params,undef,$sr,undef,undef,undef,undef,$sid,$nid,$tid,undef)
+    # Channel 4;Channel 4 TV:650166:I999B8C23D12M64T2G32Y0:T:27500:560:561=eng,562=eng:0:0:8384:9018:8207:0
+
+    my ($cs,$freq,$params,$src,$sr,undef,undef,undef,undef,$sid,$nid,$tid,undef)
         = ($line =~ m/([^:]+):?/g);
+
+    # general fixups
     $cs =~ s/;.+//;
+    $src =~ s/^(.).*/$1/;
+
+    # satellite params
     (my $pol = $params) =~ s{.*([hv]).*}{$1}i;
-    (my $fec = $params) =~ s{.*C(\d)(\d).*}{$1/$2}; # breaks for 0
-    chomp $sid;
+    $pol = (length $pol > 1 ? undef : lc $pol);
+    (my $fec = $params) =~ s{.*C(\d)(\d).*}{$1/$2}; # breaks for 0, so...
+    $fec ||= 'auto';
+
+# | mplexid | sourceid | transportid | networkid | frequency | inversion | symbolrate | fec  | polarity | modulation | bandwidth | lp_code_rate | transmission_mode | guard_interval | visible | constellation | hierarchy | hp_code_rate | sistandard | serviceversion | updatetimestamp     |
+# |       1 |        1 |         500 |      8232 | 858000000 | a         |       NULL | NULL | NULL     | NULL       | 8         | 3/4          | 8                 | 1/4            |       0 | qam_16        | n         | 3/4          | dvb        |              2 | 2008-02-02 20:16:03 | 
+
+
+    # terrestrial params
+    (my $inv = $params)  =~ s{.*I(\d+).*}{$1};
+    $inv = ($inv eq 1 ? $inv : 'auto');
+    (my $hp = $params)   =~ s{.*C(\d)(\d).*}{$1/$2}; # breaks for 0, so...
+    $hp ||= 'auto';
+    (my $lp = $params)   =~ s{.*D(\d)(\d).*}{$1/$2}; # breaks for 0, so...
+    $lp ||= 'auto';
+    (my $mod = $params)  =~ s{.*M(\d+).*}{qam_$1};
+    $mod ||= 'auto';
+    (my $bw = $params)   =~ s{.*B(\d).*}{$1};
+    (my $tmde = $params) =~ s{.*T(\d).*}{$1};
+    (my $grd = $params)  =~ s{.*G(\d+).*}{1/$1};
+    (my $hrch = $params) =~ s{.*Y(\d).*}{$1};
+    $hrch ||= 'n';
 
     return {
         cs => $cs,
         freq => $freq,
         pol => $pol,
-        fec => $fec,
+
+        '__parameters__' => ($src eq 'S' ? {
+            fec => $fec,
+            mod_sys => 'DVB-S',
+        } : {
+            inversion => $inv,
+            hp_code_rate => $hp,
+            lp_code_rate => $lp,
+            modulation => $mod,
+            constellation => $mod, # guess?!
+            bandwidth => $bw,
+            transmission_mode => $tmde,
+            guard_interval => $grd,
+            hierarchy => $hrch,
+        }),
+
+        src => $src,
         sr => $sr,
         sid => $sid,
         nid => $nid,
