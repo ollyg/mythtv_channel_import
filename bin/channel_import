@@ -1,0 +1,108 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings FATAL => 'all';
+
+use lib './lib';
+use MythConverg::Schema;
+
+use Getopt::Long;
+my $videosource = 'default';
+my $channelsfile = 'channels.conf';
+GetOptions(
+    's|videosource=s' => \$videosource,
+    'c|channels=s' => \$channelsfile,
+)or die "Failed to parse command line options.\n";;
+
+use File::Slurp;
+my @scanned_chans = read_file $channelsfile;
+
+use HTTP::Lite;
+my $http = HTTP::Lite->new;
+my $req = $http->request(
+    'http://supplement.xmltv.org/tv_grab_uk_rt/lineups/freesat.map', # FIXME
+) or die "Unable to get document: $!";
+
+my $sat_chans = {};
+foreach my $line (split m/\n/, $http->body) {
+    my ($cs, $sid, $xid) = split m/\|/, $line;
+    next unless defined $xid and length $xid
+        and $xid !~ m/RADIO|DATA|ADULT/;
+    $sat_chans->{$sid} = { callsign => $cs, xmltvid => $xid };
+}
+
+my $s = MythConverg::Schema->connect(
+    'dbi:mysql:database=mythconverg',
+    'mythtv', 'V0yNzk77',
+    { mysql_enable_utf8 => 1, quote_char => q{`}, name_sep => q{.} },  
+);
+
+my $sources = $s->resultset('Videosource');
+my $channels = $s->resultset('Channel');
+my $multiplexes = $s->resultset('DtvMultiplex');
+
+my $source = $sources->find({name => $videosource})
+    or die "Unknown video source '$videosource' (use -s <name>).\n";
+my $sourceid = $source->sourceid;
+
+# XXX
+$multiplexes->delete;
+$channels->delete;
+# XXX
+
+my $max_chanid  = $channels->get_column('chanid')->max;
+my $max_channum = $channels->get_column('channum')->max;
+my @grabber = ();
+
+foreach my $line (@scanned_chans) {
+    # callsign:frequency:polarity:?:symbolrate:vpid:apid:serviceid
+    # Channel 4:10714:h:0:22000:2327:2328:9212
+    my ($cs,$freq,$pol,undef,$sr,undef,undef,$sid)
+        = ($line =~ m/([^:]+):?/g);
+    chomp $sid;
+
+    if (!exists $sat_chans->{$sid}) {
+        print STDERR "Skipping channel '$cs' with no xmltvid\n";
+        next;
+    }
+    $cs = $sat_chans->{$sid}->{callsign}; # override from tv_grab_uk_rt
+
+    my $mplex = $multiplexes->find_or_create(
+        {
+            sourceid => $sourceid,
+            frequency => ($freq < 100_000 ? $freq * 1_000 : $freq ),
+            symbolrate => ($sr < 100_000 ? $sr * 1_000 : $sr),
+            polarity => $pol,
+        },{
+            key => 'zap_key',
+        },
+    );
+
+    # does callsign exist? if so, re-use channum, else new channum
+    my $has_chan = $channels->search({callsign => $cs})->count;
+
+    my $chan = $channels->find_or_create(
+        {
+            chanid => ++$max_chanid,
+            channum => ($has_chan
+                ? $channels->search({callsign => $cs})->first->channum
+                : ++$max_channum),
+            sourceid => $sourceid,
+        },{
+            key => 'channum_sourceid_key',
+        },
+    );
+
+    # allow update of meta such as xmltvid
+    $chan->update({
+        callsign => $cs,
+        mplexid => $mplex,
+        serviceid => $sid,
+        xmltvid => $sat_chans->{$sid}->{xmltvid},
+        mod_sys => 'DVB-S',
+    });
+
+    push @grabber, "channel $sat_chans->{$sid}->{xmltvid}\n";
+}
+
+write_file "$videosource.xmltv", @grabber;
