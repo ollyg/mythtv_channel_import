@@ -66,9 +66,13 @@ die "Channels file '$channelsfile' is empty!\n"
 
 use lib './lib';
 use MythConverg::Schema;
+
+my $pass = $ENV{MYTHCONVERG_PASS}
+    or die "Set MYTHCONVERG_PASS env var, please.\n";
+
 my $s = MythConverg::Schema->connect(
     'dbi:mysql:database=mythconverg',
-    'mythtv', 'V0yNzk77',
+    'mythtv', $pass,
     { mysql_enable_utf8 => 1, quote_char => q{`}, name_sep => q{.} },  
 );
 
