@@ -23,6 +23,28 @@ consequence is that XMLTV IDs must be installed, which is tedious at best.
 
 This script makes all this quite possible, and almost painless.
 
+=head1 Dependencies
+
+=over 4
+
+=item *
+
+Perl
+
+=item *
+
+L<DBIx::Class>
+
+=item *
+
+L<HTTP::Lite>
+
+=item *
+
+L<File::Slurp>
+
+=back
+
 =head1 Step 1: Channel Scan
 
 You must scan the satellite and terrestrial feeds and arrive at a list of
