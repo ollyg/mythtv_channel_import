@@ -27,8 +27,9 @@ foreach my $line (split m/\n/, $http->body) {
     my ($cs, $sid, $xid) = split m/\|/, $line;
     next unless defined $xid and length $xid
         and $xid !~ m/RADIO|DATA|ADULT/;
-    $x_chans->{T}->{$sid} = { callsign => $cs, xmltvid => $xid };
-    $x_chans->{T}->{by_cs}->{$cs} = $sid;
+
+    $x_chans->{by_sid}->{$sid} = { xid => $xid, cs => $cs };
+    $x_chans->{by_cs}->{$cs}   = { xid => $xid, cs => $cs }; 
 }
 
 $http->request(
@@ -39,8 +40,9 @@ foreach my $line (split m/\n/, $http->body) {
     my ($cs, $sid, $xid) = split m/\|/, $line;
     next unless defined $xid and length $xid
         and $xid !~ m/RADIO|DATA|ADULT/;
-    $x_chans->{S}->{$sid} = { callsign => $cs, xmltvid => $xid };
-    $x_chans->{S}->{by_cs}->{$cs} = $sid;
+
+    $x_chans->{by_sid}->{$sid} = { xid => $xid, cs => $cs };
+    $x_chans->{by_cs}->{$cs}   = { xid => $xid, cs => $cs }; 
 }
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -87,12 +89,16 @@ foreach my $line (@scanned_chans) {
             = $x_chans->{$scan->{src}}->{ $x_chans->{$scan->{src}}->{by_cs}->{$scan->{cs}} };
     }
 
-    if (!exists $x_chans->{$scan->{src}}->{$scan->{sid}}) {
-        print STDERR "Skipping ($scan->{src}) channel '$scan->{cs}' with no xmltvid\n";
+    my $x_chan = (
+        exists $x_chans->{by_sid}->{$scan->{sid}} ? $x_chans->{by_sid}->{$scan->{sid}}
+            : exists $x_chans->{by_cs}->{$scan->{cs}} ? $x_chans->{by_cs}->{$scan->{cs}}
+                : undef
+    );
+
+    if (!defined $x_chan) {
+        print STDERR "Skipping ($scan->{src}) channel '$scan->{cs}/$scan->{sid}' with no xmltvid\n";
         next;
     }
-    my $x_chan = $x_chans->{$scan->{src}}->{$scan->{sid}};
-    $scan->{cs} = $x_chan->{callsign}; # override to tv_grab_uk_rt value
 
     my $mplex = $multiplexes->find_or_create(
         {
@@ -111,13 +117,13 @@ foreach my $line (@scanned_chans) {
     });
 
     # does xmltvid exist? if so, re-use channum, else new channum
-    my $has_chan = $channels->search({xmltvid => $x_chan->{xmltvid}})->count;
+    my $has_chan = $channels->search({xmltvid => $x_chan->{xid}})->count;
 
     my $chan = $channels->find_or_create(
         {
             chanid => (([sort {$b <=> $a} $channels->get_column('chanid')->all]->[0] || 0) + 1),
             channum => ($has_chan
-                ? $channels->search({xmltvid => $x_chan->{xmltvid}})->first->channum
+                ? $channels->search({xmltvid => $x_chan->{xid}})->first->channum
                 : ++$max_channum),
             sourceid => $sourceid,
         },{
@@ -127,14 +133,14 @@ foreach my $line (@scanned_chans) {
 
     # allow update of meta such as xmltvid
     $chan->update({
-        callsign => $scan->{cs},
+        callsign => $x_chan->{cs},
         mplexid => $mplex,
         serviceid => $scan->{sid},
-        xmltvid => $x_chan->{xmltvid},
+        xmltvid => $x_chan->{xid},
     });
 
     # create input file for mythfilldatabase
-    push @grabber, "channel $x_chan->{xmltvid}\n";
+    push @grabber, "channel $x_chan->{xid}\n";
 }
 
 write_file "$videosource.xmltv", @grabber;
