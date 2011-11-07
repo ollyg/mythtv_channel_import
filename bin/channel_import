@@ -6,18 +6,26 @@ use warnings FATAL => 'all';
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 use Getopt::Long;
-my $videosource = 'default';
+my $videosource = undef;
 my $channelsfile = 'channels.conf';
 GetOptions(
     's|videosource=s' => \$videosource,
     'c|channels=s' => \$channelsfile,
-) or die "Failed to parse command line options.\n";;
+) or die "Failed to parse command line options.\n";
+
+if (!defined $videosource and $channelsfile =~ m/.+\.conf$/) {
+    ($videosource = $channelsfile) =~ s/\.conf$//;
+}
+
+die "No videosource defined (use -s <sourcename>)!\n"
+    unless defined $videosource and length $videosource;
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 use HTTP::Lite;
 my $http = HTTP::Lite->new;
 my $x_chans = {};
+my $xmlid_to_cs = {}; # to normalize between freeview and freesat
 
 $http->request(
     "http://supplement.xmltv.org/tv_grab_uk_rt/lineups/freeview.map",
@@ -29,7 +37,8 @@ foreach my $line (split m/\n/, $http->body) {
         and $xid !~ m/RADIO|DATA|ADULT/;
 
     $x_chans->{by_sid}->{$sid} = { xid => $xid, cs => $cs };
-    $x_chans->{by_cs}->{$cs}   = { xid => $xid, cs => $cs }; 
+    $x_chans->{by_cs}->{$cs}   = { xid => $xid, cs => $cs };
+    $xml_to_cs->{$xid} = $cs;
 }
 
 $http->request(
@@ -42,7 +51,8 @@ foreach my $line (split m/\n/, $http->body) {
         and $xid !~ m/RADIO|DATA|ADULT/;
 
     $x_chans->{by_sid}->{$sid} = { xid => $xid, cs => $cs };
-    $x_chans->{by_cs}->{$cs}   = { xid => $xid, cs => $cs }; 
+    $x_chans->{by_cs}->{$cs}   = { xid => $xid, cs => $cs };
+    $xml_to_cs->{$xid} = $cs;
 }
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -133,7 +143,8 @@ foreach my $line (@scanned_chans) {
 
     # allow update of meta such as xmltvid
     $chan->update({
-        callsign => $x_chan->{cs},
+        callsign => $xml_to_cs->{ $x_chan->{xid} },
+        name => $xml_to_cs->{ $x_chan->{xid} },
         mplexid => $mplex,
         serviceid => $scan->{sid},
         xmltvid => $x_chan->{xid},
