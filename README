@@ -1,14 +1,14 @@
-=head1 NAME
+# channel_import
 
-channel_import - Script to Import channels.conf to MythTV Multiplexes and Channels
+Script to Import channels.conf to MythTV Multiplexes and Channels
 
-=head1 Read Me First
+# Read Me First
 
 This script will work for UK users of Freeview (Digital Terrestrial) and
 Freesat (Digital Satellite), but likely no-one else. Patches to address this
 limitation are very welcome.
 
-=head1 Rationale
+# Rationale
 
 After a new installation of MythTV the dubious pleasure of training the
 backend for local satellite and terrestrial channels awaits. If you're lucky,
@@ -17,13 +17,13 @@ downloaded. Along with that comes the myriad of adult and shopping channels.
 
 All the author really wanted was about 20 "standard" channels installing, in a
 consistent and repeatable manner, without having to understand the schema of,
-and hack on, the C<channel> and C<dtv_multiplex> database tables, ever again.
+and hack on, the `channel` and `dtv_multiplex` database tables, ever again.
 Furthermore EIT lineups just aren't as good as trusty Radio Times, but the
 consequence is that XMLTV IDs must be installed, which is tedious at best.
 
 This script makes all this quite possible, and almost painless.
 
-=head1 Step 1: Channel Scan
+# Step 1: Channel Scan
 
 You must scan the satellite and terrestrial feeds and arrive at a list of
 channels which interests you. The author has supplied his own as an example,
@@ -33,89 +33,89 @@ area.
 
 Sample command for scanning the Freesat service:
 
- w_scan -f s -c GB -s S28E2 -R 0 -O 0 -E 0 -a <adapternum> >DigitalSatellite.conf
+    w_scan -f s -c GB -s S28E2 -R 0 -O 0 -E 0 -a <adapternum> >DigitalSatellite.conf
 
 Sample command for scanning the Freeview service:
 
- scan /usr/share/dvb/dvb-t/uk-Hannington -x 0 -t 1 -o vdr -a <adapternum> >DigitalTerrestrial.conf
+    scan /usr/share/dvb/dvb-t/uk-Hannington -x 0 -t 1 -o vdr -a <adapternum> >DigitalTerrestrial.conf
 
-Substitue C<adapternum> for the device number of the DVB adapter on your
-system. The author uses C<udev> to fix these between reboots (see below).
+Substitue `adapternum` for the device number of the DVB adapter on your
+system. The author uses `udev` to fix these between reboots (see below).
 
-You B<must> use VDR style output, whatever scan command you use (i.e. if you
-use C<dvbscan> or don't follow the above). You don't have to have both
+You **must** use VDR style output, whatever scan command you use (i.e. if you
+use `dvbscan` or don't follow the above). You don't have to have both
 satellite and terrestrial - the script only works with one file at a time.
 
 Edit these generated files so that they contain only the channels you're
 interested in. It's best if you name the file after the Video Source name you
-used in C<mythtv-setup>.
+used in `mythtv-setup`.
 
-=head1 Step 2: Import to MythTV
+# Step 2: Import to MythTV
 
 There is a flag to request removal of all existing channel and multiplex
 configuration from MythTV. Use this only after backing up your database. To
-enable the flag, set the C<RESET_MYTH_CHAN_MPLEX> environment variable to a
+enable the flag, set the `RESET_MYTH_CHAN_MPLEX` environment variable to a
 true value:
 
- RESET_MYTH_CHAN_MPLEX=1 ...
+    RESET_MYTH_CHAN_MPLEX=1 ...
 
-You'll need the password for your MythTV C<mythconverg> database. It's usually
-to be found in C</etc/mythtv/mysql.txt>. Pass this in an environment variable
-called C<MYTHCONVERG_PASS>:
+You'll need the password for your MythTV `mythconverg` database. It's usually
+to be found in `/etc/mythtv/mysql.txt`. Pass this in an environment variable
+called `MYTHCONVERG_PASS`:
 
- MYTHCONVERG_PASS=letmein ...
+    MYTHCONVERG_PASS=letmein ...
 
 If you named the output file from the scan after your Video Source, then
 simply run the script like so:
 
- bin/channel_import -c <ChannelScanOutputFile.conf>
+    bin/channel_import -c <ChannelScanOutputFile.conf>
 
 If you need to specify the Video Source name, use the additional option:
 
- bin/channel_import -s <VideoSourceName> -c <ChannelScanOutputFile.conf>
+    bin/channel_import -s <VideoSourceName> -c <ChannelScanOutputFile.conf>
 
-Don't forget to set the C<MYTHCONVERG_PASS>, and make sure only to set the
-C<RESET_MYTH_CHAN_MPLEX> flag once, otherwise only your most recent import
+Don't forget to set the `MYTHCONVERG_PASS`, and make sure only to set the
+`RESET_MYTH_CHAN_MPLEX` flag once, otherwise only your most recent import
 will have an effect.
 
-I<It's safe to run the import script more than once with the same channel data
-file. In fact this is a good way to update the channels list.>
+*It's safe to run the import script more than once with the same channel data
+file. In fact this is a good way to update the channels list.*
 
-=head1 Script Output
+# Script Output
 
 Other than error messages (see below), the script creates one file in the
-current direcory. This is the configuration used by C<mythfilldatabase> when
-updating your database using C<tv_grab_uk_rt>.
+current direcory. This is the configuration used by `mythfilldatabase` when
+updating your database using `tv_grab_uk_rt`.
 
-The file is named C<< <videosource>.xmltv >> and should be copied to the
-C<~/.mythtv> directory of the user which runs C<mythfilldatabase> (typically
-C<mythtv>).
+The file is named `<videosource>.xmltv` and should be copied to the
+`~/.mythtv` directory of the user which runs `mythfilldatabase` (typically
+`mythtv`).
 
-=head1 Error Messages
+# Error Messages
 
- No videosource defined (use -s <sourcename>)
+    No videosource defined (use -s <sourcename>)
 
-You missed the C<-s> option, and the name of the scan file couldn't be parsed
+You missed the `-s` option, and the name of the scan file couldn't be parsed
 to guess a Video Source name.
 
- Unknown video source '<videosourcename>' (use -s <sourcename>)
+    Unknown video source '<videosourcename>' (use -s <sourcename>)
 
-You missed the C<-s> option, and the name of the scan file doesn't match the
-name of a Video Source. Or, you supplied the C<-s> option with the wrong
+You missed the `-s` option, and the name of the scan file doesn't match the
+name of a Video Source. Or, you supplied the `-s` option with the wrong
 value.
 
- Unable to get document: ...
+    Unable to get document: ...
 
 Internet access is required for this script to be successful. It downloads
 some XMLTV IDs.
 
- Skipping (<T|S>) channel '<callsign>/<serviceid>' with no xmltvid
+    Skipping (<T|S>) channel '<callsign>/<serviceid>' with no xmltvid
 
 Unfortunately one of your channels has no XMLTV ID defined in the online
 lineup listing. If you want to attempt a fix, change the Callsign (first field
 in the scan file) to be something featured in the XMLTV ID data (see below).
 
- Skipping (<T|S>) regional channel '<callsign>/<serviceid>' (please update callsign)
+    Skipping (<T|S>) regional channel '<callsign>/<serviceid>' (please update callsign)
 
 Some terrestrial channels have regional variations in listings so have
 different XMLTV IDs, which aren't given in the online channel lineup listing.
@@ -123,52 +123,32 @@ If you want to attempt a fix, change the Callsign (first field in the scan
 file) to be something featured in the XMLTV ID data (see below). The new name
 can be from either of the freeview or freesat names lists.
 
-=head1 Further Information
+# Further Information
 
-=head2 XMLTV ID lineup list
+## XMLTV ID lineup list
 
-=over 4
+* [http://supplement.xmltv.org/tv_grab_uk_rt/lineups/freesat.map]
 
-=item *
+* [http://supplement.xmltv.org/tv_grab_uk_rt/lineups/freeview.map]
 
-L<http://supplement.xmltv.org/tv_grab_uk_rt/lineups/freesat.map>
+## VDR Channels Configuration Format
 
-=item *
+* [<http://linuxtv.org/vdrwiki/index.php/Syntax_of_channels.conf]
 
-L<http://supplement.xmltv.org/tv_grab_uk_rt/lineups/freeview.map>
-
-=back
-
-=head2 VDR Channels Configuration Format
+## Fixing DVB tuner card adapter ID between reboots
 
 =over 4
 
-=item *
+* [http://blog.gorwits.me.uk/2011/01/31/persistent-dvb-tuner-device-names/]
 
-L<http://linuxtv.org/vdrwiki/index.php/Syntax_of_channels.conf>
+# Author
 
-=back
+Oliver Gorwits `oliver@cpan.org`
 
-=head2 Fixing DVB tuner card adapter ID between reboots
+# Copyright and License
 
-=over 4
-
-=item *
-
-L<http://blog.gorwits.me.uk/2011/01/31/persistent-dvb-tuner-device-names/>
-
-=back
-
-=head1 AUTHOR
-
-Oliver Gorwits <oliver@cpan.org>
-
-=head1 COPYRIGHT AND LICENSE
-
-This software is copyright (c) 2011 by Oliver Gorwits.
+This software is copyright &copy; 2011 by Oliver Gorwits.
 
 This is free software; you can redistribute it and/or modify it under
 the same terms as the Perl 5 programming language system.
-
-=cut
 
