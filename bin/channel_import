@@ -73,7 +73,8 @@ if ($ENV{RESET_MYTH_CHAN_MPLEX}) {
     $channels->delete;
 }
 
-my $max_channum = $channels->get_column('channum')->max;
+# need to do this hack sort because DB data type is not numeric :(
+my $max_channum = [sort {$b <=> $a} $channels->get_column('channum')->all]->[0] || 0;
 my @grabber = ();
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -114,7 +115,7 @@ foreach my $line (@scanned_chans) {
 
     my $chan = $channels->find_or_create(
         {
-            chanid => (($channels->get_column('chanid')->max || 0) + 1),
+            chanid => (([sort {$b <=> $a} $channels->get_column('chanid')->all]->[0] || 0) + 1),
             channum => ($has_chan
                 ? $channels->search({xmltvid => $x_chan->{xmltvid}})->first->channum
                 : ++$max_channum),
