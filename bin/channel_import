@@ -81,7 +81,7 @@ my $channels = $s->resultset('Channel');
 my $multiplexes = $s->resultset('DtvMultiplex');
 
 my $source = $sources->find({name => $videosource})
-    or die "Unknown video source '$videosource' (use -s <name>).\n";
+    or die "Unknown video source '$videosource' (use -s <sourcename>).\n";
 my $sourceid = $source->sourceid;
 
 if ($ENV{RESET_MYTH_CHAN_MPLEX}) {
