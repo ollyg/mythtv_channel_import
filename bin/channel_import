@@ -25,7 +25,7 @@ die "No videosource defined (use -s <sourcename>)!\n"
 use HTTP::Lite;
 my $http = HTTP::Lite->new;
 my $x_chans = {};
-my $xmlid_to_cs = {}; # to normalize between freeview and freesat
+my $xml_to_cs = {}; # to normalize between freeview and freesat
 
 $http->request(
     "http://supplement.xmltv.org/tv_grab_uk_rt/lineups/freeview.map",
@@ -107,6 +107,11 @@ foreach my $line (@scanned_chans) {
 
     if (!defined $x_chan) {
         print STDERR "Skipping ($scan->{src}) channel '$scan->{cs}/$scan->{sid}' with no xmltvid\n";
+        next;
+    }
+
+    if ($x_chan->{xid} =~ m/REGIONAL/) {
+        print STDERR "Skipping ($scan->{src}) regional channel '$scan->{cs}/$scan->{sid}' (please update callsign)\n";
         next;
     }
 
