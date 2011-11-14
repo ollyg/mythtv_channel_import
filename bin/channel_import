@@ -98,11 +98,14 @@ my @grabber = ();
 foreach my $line (@scanned_chans) {
     my $scan = parse_vdr_line($line);
 
+    # sometimes the scanned serviceid isn't in our feed but the callsign is,
+    # so in that case we fake a lookup indexed on the scanned serviceid.
     if (exists $x_chans->{$scan->{src}}->{by_cs}->{$scan->{cs}}) {
         $x_chans->{$scan->{src}}->{$scan->{sid}}
             = $x_chans->{$scan->{src}}->{ $x_chans->{$scan->{src}}->{by_cs}->{$scan->{cs}} };
     }
 
+    # try to locate the channel first by serviceid and then fall back to by callsign
     my $x_chan = (
         exists $x_chans->{by_sid}->{$scan->{sid}} ? $x_chans->{by_sid}->{$scan->{sid}}
             : exists $x_chans->{by_cs}->{$scan->{cs}} ? $x_chans->{by_cs}->{$scan->{cs}}
@@ -114,6 +117,8 @@ foreach my $line (@scanned_chans) {
         next;
     }
 
+    # suggest that the user change the scanned callsign to one in the S or T xmltv file
+    # so that we can run again and match the channel by callsign
     if ($x_chan->{xid} =~ m/REGIONAL/) {
         print STDERR "Skipping ($scan->{src}) regional channel '$scan->{cs}/$scan->{sid}' (please update callsign)\n";
         next;
