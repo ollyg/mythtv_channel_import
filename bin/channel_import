@@ -41,6 +41,7 @@ foreach my $line (split m/\n/, $http->body) {
     $xml_to_cs->{$xid} = $cs;
 }
 
+$http->reset;
 $http->request(
     "http://supplement.xmltv.org/tv_grab_uk_rt/lineups/freesat.map",
 ) or die "Unable to get document: $!";
